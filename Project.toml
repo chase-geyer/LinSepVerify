@@ -1,0 +1,16 @@
+name = "LinSepVerify"
+uuid = "61e25183-d499-438b-b776-b2906c7bee12"
+authors = ["tuna <tu.na@rice.edu> and contributors"]
+version = "0.1.0"
+
+[deps]
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
