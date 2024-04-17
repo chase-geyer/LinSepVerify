@@ -14,6 +14,6 @@
  
 cd /home/$USER/or-research/LinSepVerify/ # TODO: Change path to your hw 4 folder
 
-module load Julia/1.6.1  # Load the Julia module, replace with your Julia version
+module load Julia/1.10.0  # Load the Julia module, replace with your Julia version
 
 julia export_results.jl  # Run your Julia script
