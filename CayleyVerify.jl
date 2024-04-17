@@ -107,12 +107,12 @@ function NeuralNetwork(
         net_from_pickle::Vector{Any},
         activation::Vector{StaircaseFunction},
     )
-    n = length(net_from_pickle)
+    n = length(net_from_pickle[1]) # since it's structured [layer, bias], can pull from either
     weights = []
     biases = []
-    for i in 1:n ÷ 2
-        weight = vcat([w' for w in net_from_pickle[2*i-1]]...) #convert to matrix
-        bias = net_from_pickle[2*i]
+    for i in 1:n ## TODO: write for flax output
+        weight = vcat([w' for w in net_from_pickle[1][i]]...) # calculate weight matrix for each layer
+        bias = net_from_pickle[2][i]
         push!(weights, weight)
         push!(biases, bias)
     end

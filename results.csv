@@ -1,0 +1,5 @@
+Model	Upper Bound	Lower Bound	Time	Epsilon
+./models/MNIST-DoReFa3_Dense256-Dense256.pkl    146 143 66.1297 0.008
+./models/MNIST-DoReFa3_Dense256-Dense256.pkl    144 137 53.403983333333336  0.016
+./models/MNIST-DoReFa3_Dense256-Dense256.pkl	144	133	58.295	0.024
+./models/MNIST-DoReFa3_Dense256-Dense256.pkl	141	118	45.99375	0.032
