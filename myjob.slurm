@@ -14,6 +14,7 @@
  
 cd /home/$USER/or-research/LinSepVerify/ # TODO: Change path to your hw 4 folder
 
-module load Julia # Load the Julia module, replace with your Julia version
+module load Julia # Load the Julia module
+module load Gurobi # Load the Gurobi module
 
 julia export_results.jl  # Run your Julia script

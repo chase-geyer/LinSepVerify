@@ -6,6 +6,7 @@ Pkg.add("Printf")
 Pkg.add("Dates")
 Pkg.add("MathOptInterface")
 Pkg.add("JuMP")
+Pkg.add("Gurobi")
 using TimerOutputs
 using Pickle
 using Suppressor
