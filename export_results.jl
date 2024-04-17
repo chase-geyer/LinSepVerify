@@ -1,13 +1,11 @@
 import Pkg
 Pkg.add("Pickle")
 Pkg.add("TimerOutputs")
-Pkg.add("GLMakie")
 Pkg.add("Suppressor")
 Pkg.add("Printf")
 Pkg.add("Dates")
 Pkg.add("MathOptInterface")
 using TimerOutputs
-using GLMakie
 using Pickle
 using Suppressor
 using Printf
@@ -63,8 +61,8 @@ function collect_files(directory)
     return [joinpath(directory, f) for f in readdir(directory) if isfile(joinpath(directory, f))]
 end
 
-print("images loaded\n")
 write("results.txt", "Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
+print("Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
 
 for eps in [0.008, 0.016, 0.024, 0.032]
     for file in collect_files("./models")
@@ -104,6 +102,7 @@ for eps in [0.008, 0.016, 0.024, 0.032]
         elapsed_time = Dates.value(end_time - start_time) / (1000 * 60)
         open("results.txt", "a") do output_file
             write(output_file, "$file\t$upper_bound\t$lower_bound\t$elapsed_time\t$eps\n")
+            print("$file\t$upper_bound\t$lower_bound\t$elapsed_time\t$eps\n")
         end
     end
 end
