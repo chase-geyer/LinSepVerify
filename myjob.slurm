@@ -3,7 +3,7 @@
 #SBATCH --job-name=linsepverify
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=60000m
+#SBATCH --exclusive
 #SBATCH --time=01:00:00
 #SBATCH --mail-user=cjg8@rice.edu # TODO: Input your net id
 #SBATCH --mail-type=ALL
