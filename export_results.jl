@@ -1,3 +1,11 @@
+import Pkg
+Pkg.add("Pickle")
+Pkg.add("TimerOutputs")
+Pkg.add("GLMakie")
+Pkg.add("Suppressor")
+Pkg.add("Printf")
+Pkg.add("Dates")
+Pkg.add("MathOptInterface")
 using TimerOutputs
 using GLMakie
 using Pickle
