@@ -62,21 +62,21 @@ function collect_files(directory)
     return [joinpath(directory, f) for f in readdir(directory) if isfile(joinpath(directory, f)) && endswith(f, ".pkl")]
 end
 GC.gc()
-#write("results.txt", "Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
-print("Model\tUpper_Bound\tLower_Bound\tEpsilon\n")
+write("results.txt", "Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
+#print("Model\tUpper_Bound\tLower_Bound\tEpsilon\n")
 
 for file in collect_files("./models")
+    open(name_of_output, "w") do output_file
+        write(output_file, "Img\tTime(s)\tEpsilon\n")
+    end
     for eps in [0.008, 0.016, 0.024, 0.032]
-        println("file: $file")
+        #println("file: $file")
         model = open(file)
         net_from_pickle = Pickle.load(model)
         close(model)
         dorefa_int = parse(Int, file[22])
-        println(dorefa_int)
+        #println(dorefa_int)
         name_of_output = "./experiment_outputs/results_dorefa_$dorefa_int.txt"
-        open(name_of_output, "w") do output_file
-            write(output_file, "Img\tTime(s)\n")
-        end
         f = dorefa_to_staircase(dorefa_int)
         activation = [f, f]
         neural_net = NeuralNetwork(net_from_pickle, activation)
@@ -109,16 +109,16 @@ for file in collect_files("./models")
             end
             end_time = now()
             elapsed_time = Dates.value(end_time - start_time) / (1000)
-            print("img $count: $elapsed_time\n")
+            #print("img $count: $elapsed_time\n")
             open(name_of_output, "a") do output_file
-                write(output_file, "$count\t$elapsed_time\n")
+                write(output_file, "$count\t$elapsed_time\t$eps\n")
             end
             count += 1
         end
         
         open("results.txt", "a") do output_file
             write(output_file, "$file\t$upper_bound\t$lower_bound\t$eps\n")
-            print("$file\t$upper_bound\t$lower_bound\t$eps\n")
+            #print("$file\t$upper_bound\t$lower_bound\t$eps\n")
         end
     end
 end
