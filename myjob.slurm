@@ -3,8 +3,8 @@
 #SBATCH --job-name=linsepverify
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --exclusive
 #SBATCH --time=01:00:00
+#SBATCH --mem=16000m
 #SBATCH --mail-user=cjg8@rice.edu # TODO: Input your net id
 #SBATCH --mail-type=ALL
 #SBATCH --export=ALL
@@ -12,7 +12,7 @@
 #SBATCH --exclusive
 #SBATCH --reservation=comp322
  
-cd /home/$USER/or-research/LinSepVerify/ # TODO: Change path to your hw 4 folder
+cd /home/$USER/or-research/LinSepVerify/ 
 
 module load Julia # Load the Julia module
 module load Gurobi # Load the Gurobi module

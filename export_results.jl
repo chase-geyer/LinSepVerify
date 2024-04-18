@@ -2,7 +2,6 @@ import Pkg
 Pkg.add("Pickle")
 Pkg.add("TimerOutputs")
 Pkg.add("Suppressor")
-Pkg.add("Printf")
 Pkg.add("Dates")
 Pkg.add("MathOptInterface")
 Pkg.add("JuMP")
@@ -10,7 +9,6 @@ Pkg.add("Gurobi")
 using TimerOutputs
 using Pickle
 using Suppressor
-using Printf
 using Dates
 
 include("CayleyVerify.jl")
@@ -45,40 +43,51 @@ function predict(neural_net, img)
     return findmax(output)[2]
 end
 function reshape(img_array)
-    n = Int(sqrt(length(img_array)))
+    n = Int16(sqrt(length(img_array)))
     return Base.reshape(img_array, (n, n))
 end
 
-raw_imgs = Pickle.load(open("./imgs/MNIST_images-for-verification"))
-imgs = []
-for img in raw_imgs
+function load_image(img)
     img = vcat([w' for w in img] ...)
-    img = vcat(img'...)
-    push!(imgs, img)
+    return vcat(img'...)
 end
-labels = Pickle.load(open("./imgs/MNIST_labels-for-verification", "r+"))
-labels = [l+1 for l in labels]
+
+
+labels_file = open("./imgs/MNIST_labels-for-verification", "r+")
+labels = Pickle.load(labels_file)
+close(labels_file)
+labels = [(l+1) for l in labels]
 
 function collect_files(directory)
-    return [joinpath(directory, f) for f in readdir(directory) if isfile(joinpath(directory, f))]
+    return [joinpath(directory, f) for f in readdir(directory) if isfile(joinpath(directory, f)) && endswith(f, ".pkl")]
 end
+GC.gc()
+#write("results.txt", "Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
+print("Model\tUpper_Bound\tLower_Bound\tEpsilon\n")
 
-write("results.txt", "Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
-print("Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
-
-for eps in [0.008, 0.016, 0.024, 0.032]
-    for file in collect_files("./models")
-        net_from_pickle = Pickle.load(open(file))
-        f = dorefa_to_staircase(Int(file[22]))
+for file in collect_files("./models")
+    for eps in [0.008, 0.016, 0.024, 0.032]
+        println("file: $file")
+        model = open(file)
+        net_from_pickle = Pickle.load(model)
+        close(model)
+        dorefa_int = parse(Int, file[22])
+        println(dorefa_int)
+        name_of_output = "./experiment_outputs/results_dorefa_$dorefa_int.txt"
+        open(name_of_output, "w") do output_file
+            write(output_file, "Img\tTime(s)\n")
+        end
+        f = dorefa_to_staircase(dorefa_int)
         activation = [f, f]
         neural_net = NeuralNetwork(net_from_pickle, activation)
-        start_time = now()
         upper_bound = 150
         lower_bound = 0
         count = 1
-        for (img, label) in zip(imgs, labels)
+        for (raw_img, label) in zip(Pickle.load("./imgs/MNIST_images-for-verification"), labels)
             ## can run these individually since it's 1:1 image to target_attack
+            img = load_image(raw_img)
             vulnerable = false
+            start_time = now()
             for target_label in 1:10
                 if target_label != label
                     @suppress begin
@@ -98,13 +107,18 @@ for eps in [0.008, 0.016, 0.024, 0.032]
             if vulnerable == false
                 lower_bound += 1
             end
+            end_time = now()
+            elapsed_time = Dates.value(end_time - start_time) / (1000)
+            print("img $count: $elapsed_time\n")
+            open(name_of_output, "a") do output_file
+                write(output_file, "$count\t$elapsed_time\n")
+            end
             count += 1
         end
-        end_time = now()
-        elapsed_time = Dates.value(end_time - start_time) / (1000 * 60)
+        
         open("results.txt", "a") do output_file
-            write(output_file, "$file\t$upper_bound\t$lower_bound\t$elapsed_time\t$eps\n")
-            print("$file\t$upper_bound\t$lower_bound\t$elapsed_time\t$eps\n")
+            write(output_file, "$file\t$upper_bound\t$lower_bound\t$eps\n")
+            print("$file\t$upper_bound\t$lower_bound\t$eps\n")
         end
     end
 end
