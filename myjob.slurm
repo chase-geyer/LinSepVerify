@@ -3,12 +3,12 @@
 #SBATCH --job-name=linsepverify
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=04:30:00
+#SBATCH --time=04:00:00
 #SBATCH --mem=16000m
 #SBATCH --mail-user=cjg8@rice.edu # TODO: Input your net id
 #SBATCH --mail-type=ALL
 #SBATCH --export=ALL
-#SBATCH --partition=scavenge
+#SBATCH --partition=commons
 #SBATCH --exclusive
 #SBATCH --reservation=comp322
  
