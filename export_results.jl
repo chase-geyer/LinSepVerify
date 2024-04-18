@@ -66,6 +66,8 @@ write("results.txt", "Model\tUpper Bound\tLower Bound\tTime\tEpsilon\n")
 #print("Model\tUpper_Bound\tLower_Bound\tEpsilon\n")
 
 for file in collect_files("./models")
+    dorefa_int = parse(Int, file[22])
+    name_of_output = "./experiment_outputs/results_dorefa_$dorefa_int.txt"
     open(name_of_output, "w") do output_file
         write(output_file, "Img\tTime(s)\tEpsilon\n")
     end
@@ -74,9 +76,7 @@ for file in collect_files("./models")
         model = open(file)
         net_from_pickle = Pickle.load(model)
         close(model)
-        dorefa_int = parse(Int, file[22])
         #println(dorefa_int)
-        name_of_output = "./experiment_outputs/results_dorefa_$dorefa_int.txt"
         f = dorefa_to_staircase(dorefa_int)
         activation = [f, f]
         neural_net = NeuralNetwork(net_from_pickle, activation)
