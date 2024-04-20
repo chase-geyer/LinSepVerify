@@ -83,37 +83,43 @@ for file in collect_files("./models")
         upper_bound = 150
         lower_bound = 0
         count = 1
-        for target_label in 1:10
-            if target_label != label
-                @suppress begin
-                    mip, _, _ = init_mip_deeppoly(neural_net, img, 0.024)
-                    last_layer = last(neural_net.weights)
-                    objective = zeros(10) # always 10 classes
-                    objective[target_label] = 1.0
-                    objective[label] = -1.0
-                    c = last_layer * objective
-    
-                    num_layers = length(neural_net.weights)
-                    final_dim, output_dim = size(last_layer)
-                    @objective(mip, Max, sum(c[i]*mip[:x][num_layers, i] for i in 1:final_dim))
-                    optimize!(mip)
-                    opt_val = objective_value(mip)
-                    if opt_val > 0
-                        vulnerable = true
-                        break
+        for (raw_img, label) in zip(Pickle.load("./imgs/MNIST_images-for-verification"), labels)
+            ## can run these individually since it's 1:1 image to target_attack
+            img = load_image(raw_img)
+            vulnerable = false
+            start_time = now()
+            for target_label in 1:10
+                if target_label != label
+                    @suppress begin
+                        mip, _, _ = init_mip_deeppoly(neural_net, img, 0.024)
+                        last_layer = last(neural_net.weights)
+                        objective = zeros(10) # always 10 classes
+                        objective[target_label] = 1.0
+                        objective[label] = -1.0
+                        c = last_layer * objective
+        
+                        num_layers = length(neural_net.weights)
+                        final_dim, output_dim = size(last_layer)
+                        @objective(mip, Max, sum(c[i]*mip[:x][num_layers, i] for i in 1:final_dim))
+                        optimize!(mip)
+                        opt_val = objective_value(mip)
+                        if opt_val > 0
+                            vulnerable = true
+                            break
+                        end
                     end
                 end
+                if vulnerable == false
+                    lower_bound += 1
+                end
+                end_time = now()
+                elapsed_time = Dates.value(end_time - start_time) / (1000)
+                #print("img $count: $elapsed_time\n")
+                open(name_of_output, "a") do output_file
+                    write(output_file, "$count\t$elapsed_time\t$eps\n")
+                end
+                count += 1
             end
-            if vulnerable == false
-                lower_bound += 1
-            end
-            end_time = now()
-            elapsed_time = Dates.value(end_time - start_time) / (1000)
-            #print("img $count: $elapsed_time\n")
-            open(name_of_output, "a") do output_file
-                write(output_file, "$count\t$elapsed_time\t$eps\n")
-            end
-            count += 1
         end
             
         
