@@ -91,7 +91,7 @@ for file in collect_files("./models")
             for target_label in 1:10
                 if target_label != label
                     @suppress begin
-                        mip, _, _ = init_mip_deeppoly(neural_net, img, 0.024)
+                        mip, _, _ = init_mip_deeppoly(neural_net, img, eps)
                         last_layer = last(neural_net.weights)
                         objective = zeros(10) # always 10 classes
                         objective[target_label] = 1.0
