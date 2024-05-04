@@ -1,7 +1,6 @@
 import MathOptInterface
 using LinearAlgebra
 using JuMP, Gurobi
-const MOI = MathOptInterface
 const GT = MOI.GreaterThan{Float64}
 const LT = MOI.LessThan{Float64}
 
@@ -110,7 +109,7 @@ function NeuralNetwork(
     n = length(net_from_pickle[1]) # since it's structured [layer, bias], can pull from either
     weights = []
     biases = []
-    for i in 1:n ## TODO: write for flax output
+    for i in 1:n 
         weight = vcat([w' for w in net_from_pickle[1][i]]...) # calculate weight matrix for each layer
         bias = net_from_pickle[2][i]
         push!(weights, weight)
@@ -162,7 +161,7 @@ function solve_knapsackseries(
     var_score = [(i, w[i] != 0 ? c[i]/w[i] : Inf) for i in 1:n]
     upperhalf_var_order = sort(filter(x -> x[2] <= 0, var_score), by = x -> abs(x[2]))
     lowerhalf_var_order = sort(filter(x -> x[2] >= 0, var_score), by = x -> abs(x[2]))
-    # Why do we knapsack twice?
+    # Why do we knapsack twice? -- since we have to consider the upper and lower half of the activation function
     z_coef[i₀] = c ⋅ x₀
     j = 1
     optsol = copy(x₀)

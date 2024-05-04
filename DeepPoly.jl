@@ -176,10 +176,13 @@ function deep_poly(
     weights = net.weights
     biases = net.biases
     num_layer = length(weights)
-    
+
     prev_layer = input_layer
     preact_layer = []
     f = net.activation[1]
+
+
+        
     for j in 1:length(biases[1])
         bias = biases[1][j]
         weight = weights[1][:, j]
