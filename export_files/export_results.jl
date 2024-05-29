@@ -59,23 +59,28 @@ close(labels_file)
 labels = [(l+1) for l in labels]
 
 
-
 function collect_files(directory)
     return [joinpath(directory, f) for f in readdir(directory) if isfile(joinpath(directory, f)) && endswith(f, ".pkl")]
 end
-GC.gc()
 #print("Model\tUpper_Bound\tLower_Bound\tEpsilon\n")
+verification_type = "cayley"
+output_folder = "cayley_outputs"
 images = Pickle.load(open("./imgs/MNIST_images-for-verification", "r+"))
 for file in collect_files("./models")
     dorefa_int = parse(Int, file[22])
-    name_of_output = "./export_files/experiment_outputs/results_dorefa_$dorefa_int.txt"
+    name_of_time_output = "./final/" * output_folder * "/time_values/results_large_dorefa_$dorefa_int.txt"
+    name_of_obj_output =  "./final/" * output_folder * "/objective_gaps/results_large_dorefa_$dorefa_int.txt"
     if length(file) > 45
-        name_of_output = "./export_files/experiment_outputs/results_dorefa_double_$dorefa_int.txt"
+        name_of_time_output = "./final/" * output_folder * "/time_values/results_large_dorefa_double_$dorefa_int.txt"
+        name_of_obj_output = "./final/" * output_folder * "/objective_gaps/results_large_dorefa_double_$dorefa_int.txt"
     end
-    open(name_of_output, "w") do output_file
+    open(name_of_time_output, "w") do output_file
         write(output_file, "Img\tTime(s)\tEpsilon\n")
     end
-    for eps in [0.008, 0.016, 0.024, 0.032]
+    open(name_of_obj_output, "w") do output_file
+        write(output_file, "Img\tTarget_Label\tEpsilon\tObjective_Value\tLabel\n")
+    end
+    for eps in [0.025, 0.05, 0.075, 0.1]
         println("file: $file")
         net_from_pickle = Pickle.load(file)
         #println(dorefa_int)
@@ -91,6 +96,7 @@ for file in collect_files("./models")
         count = 1
         for (raw_img, label) in collect(zip(images, labels))
             ## can run these individually since it's 1:1 image to target_attack
+            opt_val = 0
             img = load_image(raw_img)
             vulnerable = false
             start_time = now()
@@ -108,22 +114,28 @@ for file in collect_files("./models")
                             end
                         end
                     end
+                    open(name_of_obj_output, "a") do output_file
+                        output_target_label = target_label - 1
+                        output_label = label-1
+                        write(output_file, "$count\t$output_target_label\t$eps\t$opt_val\t$output_label\n")
+                    end
                 end
             end
+
             if vulnerable == false
                 lower_bound += 1
             end
             end_time = now()
             elapsed_time = Dates.value(end_time - start_time) / (1000)
             #print("img $count: $elapsed_time\n")
-            open(name_of_output, "a") do output_file
+            open(name_of_time_output, "a") do output_file
                 write(output_file, "$count\t$elapsed_time\t$eps\n")
             end
             count += 1
         end
         
-        open("./export_files/result.txt", "a") do output_file
-            write(output_file, "$file\t$upper_bound\t$lower_bound\t$eps\n")
+        open("./final/results.txt", "a") do output_file
+            write(output_file, "$file\t$upper_bound\t$lower_bound\t$eps\t$verification_type\n")
             #print("$file\t$upper_bound\t$lower_bound\t$eps\n")
         end
     end

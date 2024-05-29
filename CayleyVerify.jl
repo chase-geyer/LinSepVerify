@@ -608,6 +608,7 @@ function target_attack(
                 x = x_val[i]
                 neuron = variable_neuron_dict[mip[:x][i+1, j]]
                 alpha = generate_alpha(neuron, x, y, z)
+                ## generates cuts
                 if alpha != nothing && !(alpha in generated_alpha[mip[:x][i+1, j]])
                     push!(generated_alpha[mip[:x][i+1, j]], alpha)
                     num_cut += 2

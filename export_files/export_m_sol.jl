@@ -65,17 +65,23 @@ GC.gc()
 
 raw_imgs = Pickle.load("./imgs/MNIST_images-for-verification")
 #print("Model\tUpper_Bound\tLower_Bound\tEpsilon\n")
+verification_type = "big_m"
 output_folder = "big_m_results"
 for file in collect_files("./models")
     dorefa_int = parse(Int, file[22])
-    name_of_output = "./export_files/" * output_folder * "/results_dorefa_$dorefa_int.txt"
+    name_of_time_output = "./final/" * output_folder * "/time_values/results_large_dorefa_$dorefa_int.txt"
+    name_of_obj_output =  "./final/" * output_folder * "/objective_gaps/results_large_dorefa_$dorefa_int.txt"
     if length(file) > 45
-        name_of_output = "./export_files/" * output_folder * "/results_dorefa_double_$dorefa_int.txt"
+        name_of_time_output = "./final/" * output_folder * "/time_values/results_large_dorefa_double_$dorefa_int.txt"
+        name_of_obj_output = "./final/" * output_folder * "/objective_gaps/results_large_dorefa_double_$dorefa_int.txt"
     end
-    open(name_of_output, "w") do output_file
+    open(name_of_time_output, "w") do output_file
         write(output_file, "Img\tTime(s)\tEpsilon\n")
     end
-    for eps in [0.008, 0.016, 0.024, 0.032]
+    open(name_of_obj_output, "w") do output_file
+        write(output_file, "Img\tTarget_Label\tEpsilon\tObjective_Value\tLabel\n")
+    end
+    for eps in [0.025, 0.075]
         println("file: $file")
         net_from_pickle = Pickle.load(file)
         #println(dorefa_int)
@@ -86,17 +92,19 @@ for file in collect_files("./models")
             activation = [f, f]
         end
         neural_net = NeuralNetwork(net_from_pickle, activation)
-        upper_bound = Threads.Atomic{Int}(150);
-        lower_bound = Threads.Atomic{Int}(0);
-        #count = 1
-        Threads.@threads for i in 1:150
+        upper_bound = 150;
+        lower_bound = 0;
+        count = 1
+        for i in 1:150
             ## can run these individually since it's 1:1 image to target_attack
+            opt_val = 0
             label = labels[i]
             img = load_image(raw_imgs[i])
-            #start_time = now()
+            start_time = now()
             vulnerable = false
             for target_label in 1:10
                 if target_label != label
+                    opt_val = 0
                     @suppress begin
                         mip, _, _ = init_mip_deeppoly(neural_net, img, eps)
                         last_layer = last(neural_net.weights)
@@ -116,27 +124,33 @@ for file in collect_files("./models")
                             adv_img = [opt_sol_x[1, j] for j in 1:784]
                             pred = predict(neural_net, adv_img)
                             if pred != label
-                                Threads.atomic_add!(upper_bound, -1)
+                                upper_bound = upper_bound - 1
                                 break
                             end
                         end
                     end
+                    open(name_of_obj_output, "a") do output_file
+                        output_target_label = target_label - 1
+                        output_label = label-1
+                        write(output_file, "$count\t$output_target_label\t$eps\t$opt_val\t$output_label\n")
+                    end
                 end
+               
             end
             if vulnerable == false
-                Threads.atomic_add!(lower_bound, -1)
+                lower_bound = lower_bound + 1
             end
             #display(upper_bound)
-            #end_time = now()
-            #elapsed_time = Dates.value(end_time - start_time) / (1000)
+            end_time = now()
+            elapsed_time = Dates.value(end_time - start_time) / (1000)
             #print("img $count: $elapsed_time\n")
-            #open(name_of_output, "a") do output_file
-            #    write(output_file, "$count\t$elapsed_time\t$eps\n")
-            #end
-            #count += 1
+            open(name_of_time_output, "a") do output_file
+                write(output_file, "$count\t$elapsed_time\t$eps\n")
+            end
+            count += 1
         end
-        open("./export_files/big_m_results.txt", "a") do output_file
-            write(output_file, "$file\t$upper_bound\t$lower_bound\t$eps\n")
+        open("./final/results.txt", "a") do output_file
+            write(output_file, "$file\t$upper_bound\t$lower_bound\t$eps\t$verification_type\n")
             #print("$file\t$upper_bound\t$lower_bound\t$eps\n")
         end   
     end

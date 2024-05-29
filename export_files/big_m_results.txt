@@ -91,3 +91,12 @@ Model	Upper Bound	Lower Bound	Time	Epsilon
 ./models/MNIST-DoReFa7_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(145)	Base.Threads.Atomic{Int64}(-144)	0.016
 ./models/MNIST-DoReFa7_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(144)	Base.Threads.Atomic{Int64}(-140)	0.024
 ./models/MNIST-DoReFa7_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(144)	Base.Threads.Atomic{Int64}(-125)	0.032
+./models/MNIST-DoReFa2_Dense256-Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(142)	Base.Threads.Atomic{Int64}(18)	0.05
+./models/MNIST-DoReFa2_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(141)	Base.Threads.Atomic{Int64}(71)	0.05
+./models/MNIST-DoReFa3_Dense256-Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(144)	Base.Threads.Atomic{Int64}(13)	0.05
+./models/MNIST-DoReFa3_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(137)	Base.Threads.Atomic{Int64}(64)	0.05
+./models/MNIST-DoReFa4_Dense256-Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(143)	Base.Threads.Atomic{Int64}(72)	0.05
+./models/MNIST-DoReFa4_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(143)	Base.Threads.Atomic{Int64}(72)	0.05
+./models/MNIST-DoReFa5_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(140)	Base.Threads.Atomic{Int64}(63)	0.05
+./models/MNIST-DoReFa6_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(139)	Base.Threads.Atomic{Int64}(74)	0.05
+./models/MNIST-DoReFa7_Dense256-Dense256.pkl	Base.Threads.Atomic{Int64}(142)	Base.Threads.Atomic{Int64}(55)	0.05

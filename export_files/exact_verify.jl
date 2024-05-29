@@ -112,9 +112,7 @@ for n in neurons_by_layer
 end
 
 
-allocation1 = []
-allocation2 = []
-count = [0]
+
 function callback_cut(cb_data)
     count[1] += 1
     if count[1]%100 == 0
@@ -158,56 +156,94 @@ function callback_cut(cb_data)
     end
 end
 
+
+allocation1 = []
+allocation2 = []
+count = [0]
 MOI.set(mip, MOI.UserCutCallback(), callback_cut)
 @time optimize!(mip)
 
-function verify(neural_net, image, true_label, objective, eps = 0.01, max_iter = 1000)
-    # set objective for mip model
-    mip, variable_neuron_dict = init_mip_model(neural_net, image, true_label, eps)
-    last_layer = last(neural_net)[1]
-    c = last_layer * objective
-    #=for i in 2:10
-        @constraint(mip, sum(last_layer[1:100, i][j]*mip[:x][3, j] for j in 1:100) <=
-                         sum(last_layer[1:100, i][1]*mip[:x][3, j] for j in 1:100))
-    end=#
-    num_layers = length(neural_net)
-    final_dim, output_dim = size(last(neural_net)[1])
-    @objective(mip, Max, sum(c[i]*mip[:x][num_layers, i] for i in 1:final_dim))
+function target_attack(
+    neural_net::NeuralNetwork, 
+    image::Vector{Float64},
+    true_label::Int64,
+    target_label::Int64, 
+    eps::Float64 = 0.01, 
+)
+# set objective for mip model
+num_cut = 0
+mip, variable_neuron_dict, neuron_integervar_dict = init_mip_deeppoly(neural_net, image, eps)
+last_layer = last(neural_net.weights)
+objective = zeros(10) # always 10 classes
+objective[target_label] = 1.0
+objective[true_label] = -1.0
+#objective = [1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0]
+c = last_layer * objective
+
+
+num_layers = length(neural_net.weights)
+final_dim, output_dim = size(last_layer)
+@objective(mip, Max, sum(c[i]*mip[:x][num_layers, i] for i in 1:final_dim))
+
+neurons_by_layer = [length(bias) for bias in neural_net.biases] #including input & output layer
+pushfirst!(neurons_by_layer, size(neural_net.weights[1])[1])
+pop!(neurons_by_layer)
+
+# separation procedure
+feasible = false
+count = 0
+generated_alpha = Dict()
+for (key, value) in variable_neuron_dict
+    generated_alpha[key] = Set()
+end
+while !feasible
+    #@printf("solving %d-th problem: \n", count+1)
+    optimize!(mip)
+    x_val = [value.(mip[:x][i, k] for k in 1:neurons_by_layer[i]) for i in 1:length(neurons_by_layer)]
+    z_val = [[value.(mip[:z][i, j, k] for k in 1:neuron_integervar_dict[(i, j)]) for j in 1:neurons_by_layer[i]] 
+              for i in 2:num_layers]
     
-    # separation procedure
-    feasible = false
-    count = 0
-    generated_alpha = Dict()
-    for (key, value) in variable_neuron_dict
-        generated_alpha[key] = Set()
-    end
-    while !feasible && count < max_iter
-        @printf("solving %d-th problem: \n", count+1)
-        @time optimize!(mip)
-        #TODO: parallel this part?
-        feasible = true
-        for (i, (weights, bias)) in enumerate(neural_net[1:num_layers-1])
-            n, m = size(weights)
-            @printf("   generate violating inequalities of layer %d: \n   ", i+1)
-            @time for j in 1:m
-                y = value(mip[:x][i+1, j])
-                x = value.([mip[:x][i, k] for k in 1:n])
-                z = value.([mip[:z][i+1,j,1], mip[:z][i+1,j,2]])
-                neuron = variable_neuron_dict[mip[:x][i+1, j]]
-                alpha = generate_alpha(neuron, x, y, z)
-                if alpha !== nothing && !(alpha in generated_alpha[mip[:x][i+1, j]])
-                    push!(generated_alpha[mip[:x][i+1, j]], alpha)
-                    upper_z = generate_zcoef_from_alpha(neuron, alpha, GT(y))
-                    lower_z = generate_zcoef_from_alpha(neuron, alpha, LT(y))
-                    @constraint(mip, mip[:x][i+1, j] <= sum(mip[:x][i, k]*alpha[k] for k in 1:n) +
-                                     sum(mip[:z][i+1, j, k]*upper_z[k] for k in 1:2)) 
-                    @constraint(mip, mip[:x][i+1, j] >= sum(mip[:x][i, k]*alpha[k] for k in 1:n) +
-                                     sum(mip[:z][i+1, j, k]*lower_z[k] for k in 1:2))
-                    feasible = false
+    #TODO: parallel this part?
+    feasible = true
+    for i in 1:num_layers-1
+        bias = neural_net.biases[i]
+        weight = neural_net.weights[i]
+        n, m = size(weight)
+        #@printf("   generate violating inequalities of layer %d: \n   ", i+1)
+        for j in 1:m
+            num_pieces = neuron_integervar_dict[(i+1,j)]
+            z = [z_val[i][j][k] for k in 1:num_pieces]
+            
+            fractional = false
+            for val in z
+                if val > 1e-6 && val < 1-1e-6
+                    fractional = true
+                    break
                 end
             end
+
+            if !fractional
+                continue
+            end
+            y = x_val[i+1][j]
+            x = x_val[i]
+            neuron = variable_neuron_dict[mip[:x][i+1, j]]
+            alpha = generate_alpha(neuron, x, y, z)
+            if alpha != nothing && !(alpha in generated_alpha[mip[:x][i+1, j]])
+                push!(generated_alpha[mip[:x][i+1, j]], alpha)
+                num_cut += 2
+                upper_z = generate_zcoef_from_alpha(neuron, alpha, GT(y))
+                lower_z = generate_zcoef_from_alpha(neuron, alpha, LT(y))
+                @constraint(mip, mip[:x][i+1, j] <= sum(mip[:x][i, k]*alpha[k] for k in 1:n) +
+                                 sum(mip[:z][i+1, j, p]*upper_z[p] for p in 1:num_pieces)) 
+                @constraint(mip, mip[:x][i+1, j] >= sum(mip[:x][i, k]*alpha[k] for k in 1:n) +
+                                 sum(mip[:z][i+1, j, p]*lower_z[p] for p in 1:num_pieces))
+                feasible = false
+            end
         end
-        count += 1
     end
-    return objective_value(mip), value.(mip[:x]), value.(mip[:z])
+    count += 1
 end
+return objective_value(mip), value.(mip[:x]), value.(mip[:z]), mip
+end
+

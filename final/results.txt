@@ -1,0 +1,3 @@
+Model	Upper Bound	Lower Bound	Time	Epsilon Model
+./models/MNIST-DoReFa2_Dense256-Dense256-Dense256.pkl	142	78	0.025	cayley
+./models/MNIST-DoReFa2_Dense256-Dense256-Dense256.pkl	143	19	0.05	cayley
