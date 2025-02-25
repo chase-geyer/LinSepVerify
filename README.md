@@ -55,11 +55,18 @@ julia export_m_sol.jl
 
 Results are saved in:
 
+```
 big_m_results - Big-M method results
 deep_poly_results - DeepPoly method results
 cayley_outputs - Cayley method results
+```
 
 Each folder contains:
 
+```
 time_values/ - Execution time data
+```
+
+```
 objective_gaps/ - Optimization gaps and objectives
+```
