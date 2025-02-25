@@ -1,0 +1,4 @@
+obj	lowerBound	time	img	method
+Base.RefValue{Float64}(0.06003497168421745)	Base.RefValue{Float64}(3.74e-321)	227.188	135	cayley
+Base.RefValue{Float64}(2.81e-321)	Base.RefValue{Float64}(-0.04782117158174515)	237.096	135	cayley
+Base.RefValue{Float64}(0.024828677996993065)	Base.RefValue{Float64}(-0.0019581872038543224)	382.643	135	cayley

@@ -1,16 +1,10 @@
-using Printf
-import Pkg
-Pkg.add("Pickle")
-Pkg.add("TimerOutputs")
-Pkg.add("Suppressor")
-Pkg.add("Dates")
-Pkg.add("MathOptInterface")
-Pkg.add("JuMP")
-Pkg.add("Gurobi")
-using TimerOutputs
-using Pickle
-using Suppressor
-using Dates
+import MathOptInterface, Pickle
+using Profile, ProfileView
+using LinearAlgebra
+using JuMP, Gurobi, Test, Ipopt, Juniper, Suppressor, Dates
+using Images, ImageView
+const GT = MOI.GreaterThan{Float64}
+const LT = MOI.LessThan{Float64}
 
 include("../CayleyVerify.jl")
 include("../DeepPoly.jl")
@@ -18,16 +12,16 @@ include("../DeepPoly.jl")
 
 function dorefa_to_staircase(k::Int)
     n = 2^k - 1
-    slopes = zeros(n+1)
+    slopes = zeros(n + 1)
     breakpoints = [-Inf]
     for i in 1:n
-        push!(breakpoints, (2*i-1)/n - 1)
+        push!(breakpoints, (2 * i - 1) / n - 1)
     end
     push!(breakpoints, Inf)
-    
+
     constant_terms = [-1.0]
     for i in 1:n
-        push!(constant_terms, -1.0 + 2*i/n)
+        push!(constant_terms, -1.0 + 2 * i / n)
     end
     return StaircaseFunction(breakpoints, slopes, constant_terms)
 end
@@ -37,7 +31,7 @@ function predict(neural_net, img)
     a = img'
     for i in 1:num_layers
         a = a * neural_net.weights[i] + neural_net.biases[i]'
-        if i <= num_layers -1
+        if i <= num_layers - 1
             a = [eval(neural_net.activation[i], a[j]) for j in 1:length(a)]'
         end
     end
@@ -50,200 +44,379 @@ function reshape(img_array)
 end
 
 function load_image(img)
-    img = vcat([w' for w in img] ...)
+    img = vcat([w' for w in img]...)
     return vcat(img'...)
 end
-
-
-labels_file = open("./imgs/MNIST_labels-for-verification", "r+")
-labels = Pickle.load(labels_file)
-close(labels_file)
-labels = [(l+1) for l in labels]
-
-raw_imgs = Pickle.load("./imgs/MNIST_images-for-verification")
-imgs = [reshape(img) for img in raw_imgs]
-
-
-t = @elapsed mip, variable_neuron_dict, neuron_integervar_dict = init_mip_deeppoly(neural_net, imgs[1], 0.008)
-true_label = labels[1]
-target_label = 2
-
-last_layer = last(neural_net.weights)
-objective = zeros(10)
-objective[target_label] = 1.0
-objective[true_label] = -1.0
-c = last_layer * objective
-
-for z in mip[:z]
-    set_binary(z)
+function get_neural(path, k)
+    net_from_pickle = Pickle.load(open(path))
+    f = dorefa_to_staircase(k)
+    activation = [f, f]
+    print("net loaded\n")
+    return NeuralNetwork(net_from_pickle, activation)
 end
 
-num_layers = length(neural_net.weights)
-final_dim, output_dim = size(last_layer)
-@objective(mip, Max, sum(c[i]*mip[:x][num_layers, i] for i in 1:final_dim))
-@time optimize!(mip)
+dorefa2neural = get_neural("../models/MNIST-DoReFa2_Dense256-Dense256.pkl", 2)
+dorefa3neural = get_neural("../models/MNIST-DoReFa3_Dense256-Dense256.pkl", 3)
+dorefa4neural = get_neural("../models/MNIST-DoReFa4_Dense256-Dense256.pkl", 4)
 
 
-mip, variable_neuron_dict, neuron_integervar_dict = init_mip_deeppoly(neural_net, imgs[1], 0.008)
-true_label = labels[1]
-target_label = 2
+raw_imgs = Pickle.load(open("../imgs/MNIST_images-for-verification"))
+imgs = []
+for img in raw_imgs
+    img = vcat([w' for w in img]...)
+    img = vcat(img'...)
+    push!(imgs, img)
+end
+labels = Pickle.load(open("../imgs/MNIST_labels-for-verification"))
+labels = [l + 1 for l in labels]
+print("images loaded\n")
 
-last_layer = last(neural_net.weights)
-objective = zeros(10) # always 10 classes
-objective[target_label] = 1.0
-objective[true_label] = -1.0
-c = last_layer * objective
+image = reshape(imgs[12])
+normalized_image = (image .+ 1) ./ 2  # Scale to [0, 1]
+save("test.png", normalized_image)
 
-num_layers = length(neural_net.weights)
-final_dim, output_dim = size(last_layer)
-@objective(mip, Max, sum(c[i]*mip[:x][num_layers, i] for i in 1:final_dim))
+logFilePath = "finalResultLog.txt"
+graphFilePath = "final_graph_log.txt"
+write(graphFilePath, "obj\tlowerBound\ttime\timg\tmethod\n")
+function run_m(neural_net, eps, timelimit, imgIdx, cut_freq)
+    mip, variable_neuron_dict, neuron_integervar_dict = init_mip_deeppoly(neural_net, imgs[imgIdx], eps)
+    true_label = labels[imgIdx]
+    target_label = 2
+    set_attribute(mip, "output_flag", false)
+    set_optimizer_attribute(mip, "TimeLimit", timelimit) # Set a time limit of 300 seconds
+    last_layer = last(neural_net.weights)
+    objective = zeros(10) # always 10 classes
+    objective[target_label] = 1.0
+    objective[true_label] = -1.0
+    c = last_layer * objective
 
-neurons_by_layer = [length(bias) for bias in neural_net.biases] #including input & output layer
-pushfirst!(neurons_by_layer, size(neural_net.weights[1])[1])
-pop!(neurons_by_layer)
+    # Define the objective function in a more concise manner
+    num_layers = length(neural_net.weights)
+    final_dim, _ = size(last_layer) # Assuming output_dim is not used elsewhere
+    @objective(mip, Max, sum(c[i] * mip[:x][num_layers, i] for i in 1:final_dim))
 
-for z in mip[:z]
-    set_binary(z)
+    # Efficiently compute neurons_by_layer without mutating the array
+    neurons_by_layer = [size(neural_net.weights[1])[1]; [length(bias) for bias in neural_net.biases][1:end-1]]
+
+    # Set integer constraint on z variables in a single loop
+    foreach(set_integer, mip[:z])
+
+    # Preallocate alphas with the correct dimensions and fill with zeros
+    alphas = [zeros(n) for n in neurons_by_layer]
+    start_time = now()
+    count = [0]
+    optimals = [0]
+    function callback_cut(cb_data, cb_where)
+        count[1] += 1
+
+        if cb_where == Gurobi.GRB_CB_MIPSOL
+            optimals[1] += 1
+            println("big-m solution found better objective\n")
+            node_status = Ref{Cint}()
+            Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_STATUS, node_status)
+            println("node status: ", node_status[])
+            # println("GRB_CB_MIPNODE", Gurobi.GRB_CB_MIPNODE)
+            # println("GRB_CB_MIPSOL", Gurobi.GRB_CB_MIPSOL)
+            # println("GRB_CB_MIPNODE_OBJBST", Gurobi.GRB_CB_MIPNODE_OBJBST)
+            # println("GRB_OPTIMAL", Gurobi.GRB_OPTIMAL)
+            if node_status[] != 0
+                Gurobi.load_callback_variable_primal(cb_data, cb_where)
+                current_time = now()
+                time = Dates.value(current_time - start_time) / (1000)
+                obj_val = Ref{Cdouble}()
+                Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_OBJBST, obj_val)
+                dual_bound = Ref{Cdouble}()
+                Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_OBJBND, dual_bound)
+                open(graphFilePath, "a") do f
+                    write(f, "$obj_val\t$dual_bound\t$time\t$imgIdx\tbig-m\t$cut_freq\n")
+                end
+            end
+        end
+    end
+    MOI.set(mip, Gurobi.CallbackFunction(), callback_cut)
+    optimize!(mip)
+ 
+    # print("fractional calls: ", fractional_calls[1], "\n")
+    # output = split(output," ")[2]
+    print("solution status", termination_status(mip))
+    if true
+        # if termination_status(mip) ==
+        #     open(logFilePath, "a") do f
+        #         write(f, "Optimization did not converge")
+        #     end
+        #     return
+        # end
+        try
+            nodes_explored = node_count(mip)
+            lb = dual_objective_value(mip)
+            obj = objective_value(mip)
+            gap = relative_gap(mip)
+        catch e
+            open(logFilePath, "a") do file
+                write(file, "No solutions found\n")
+            end
+            return;
+        end
+        nodes_explored = node_count(mip)
+        lb = dual_objective_value(mip)
+        obj = objective_value(mip)
+        gap = relative_gap(mip)
+        open(logFilePath, "a") do file
+            write(file, "$gap\t$eps\t$obj\t$lb\t$timelimit\t$nodes_explored\tbig-m\t$imgIdx\n")
+        end
+    end
+    # return output
 end
 
-alphas = []
-for n in neurons_by_layer
-    push!(alphas, zeros(n))
-end
 
+function run_cayley_with_callback(neural_net, eps, timelimit, imgIdx, cut_freq)
+    mip, variable_neuron_dict, neuron_integervar_dict = init_mip_deeppoly(neural_net, imgs[imgIdx], eps)
+    true_label = labels[imgIdx]
+    target_label = 2
+    set_attribute(mip, "output_flag", false)
+    set_optimizer_attribute(mip, "TimeLimit", timelimit) # Set a time limit of 300 seconds
+    # set_optimizer_attribute(mip , "Presolve", 0) # Turn off presolve
+    last_layer = last(neural_net.weights)
+    objective = zeros(10) # always 10 classes
+    objective[target_label] = 1.0
+    objective[true_label] = -1.0
+    # Calculate 'c' using matrix multiplication for vectorization
+    c = last_layer * objective
 
+    # Define the objective function in a more concise manner
+    num_layers = length(neural_net.weights)
+    final_dim, _ = size(last_layer) # Assuming output_dim is not used elsewhere
+    @objective(mip, Max, sum(c[i] * mip[:x][num_layers, i] for i in 1:final_dim))
 
-function callback_cut(cb_data)
-    count[1] += 1
-    if count[1]%100 == 0
-        x_val = callback_value.(Ref(cb_data), mip[:x])
-        z_val = callback_value.(Ref(cb_data), mip[:z])
-        for i in 1:num_layers-1
-            bias = neural_net.biases[i]
-            weight = neural_net.weights[i]
-            n, m = size(weight)
-            for j in 1:m
-                num_pieces = neuron_integervar_dict[(i+1,j)]
-                z = [z_val[i+1,j,k] for k in 1:num_pieces]
-                fractional = false
-                for val in z
-                    if val > 1e-6 && val < 1-1e-6
-                        fractional = true
-                        break
+    # Efficiently compute neurons_by_layer without mutating the array
+    neurons_by_layer = [size(neural_net.weights[1])[1]; [length(bias) for bias in neural_net.biases][1:end-1]]
+
+    # Set integer constraint on z variables in a single loop
+    foreach(set_integer, mip[:z])
+
+    # Preallocate alphas with the correct dimensions and fill with zeros
+    alphas = [zeros(n) for n in neurons_by_layer]
+
+    #allocation1 = []
+    #allocation2 = []
+    start_time = now()
+    count = [0]
+    sols = [0]
+    function callback_cut(cb_data, cb_where)
+        count[1] += 1
+        # output = []
+        # push!(output, MOI.get(mip, MOI.NodeCount()))
+        current_time = now()
+        # print(cb_where)
+        # push!(output, callback_value(cb_data, mip), Dates.value(current_time - start_time) / (1000))
+        if cb_where == Gurobi.GRB_CB_MIPSOL
+            sols[1] += 1
+            print("MIPSOL_OBJ\n")
+            node_status = Ref{Cint}()
+            Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_STATUS, node_status)
+            if node_status[] != Gurobi.GRB_OPTIMAL
+                Gurobi.load_callback_variable_primal(cb_data, cb_where)
+                current_time = now()
+                time = Dates.value(current_time - start_time) / (1000)
+                obj_val = Ref{Cdouble}()
+                Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_OBJBST, obj_val)
+                dual_bound = Ref{Cdouble}()
+                Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_OBJBND, dual_bound)
+                open(graphFilePath, "a") do f
+                    write(f, "$obj_val\t$dual_bound\t$time\t$imgIdx\tcayley\n")
+                end
+            end
+        end
+        if cb_where == Gurobi.GRB_CB_MIPNODE_OBJBST &&  Dates.value(current_time - start_time) / (1000) < timelimit * 0.5 && count[1] % cut_freq == 0
+            # try
+                x_val = callback_value.(Ref(cb_data), mip[:x])
+                z_val = callback_value.(Ref(cb_data), mip[:z])
+                println(z_val) ## Since we're only adding cut when there is a fractional z value
+
+                for i in 1:num_layers-1
+                    bias = neural_net.biases[i]
+                    weight = neural_net.weights[i]
+                    n, m = size(weight)
+                    for j in 1:m
+                        num_pieces = neuron_integervar_dict[(i + 1, j)]
+                        z = [z_val[i+1, j, k] for k in 1:num_pieces]
+                        fractional = any(1e-6 < val < 1 - 1e-6 for val in z)
+                        if !fractional
+                            continue
+                        end
+                        y = x_val[i+1, j]
+                        x = [x_val[i, k] for k in 1:n]
+                        neuron = variable_neuron_dict[mip[:x][i+1, j]]
+                        update = update_alpha!(neuron, x, y, z, alphas[i])
+                        if update
+                            upper_z = generate_zcoef_from_alpha(neuron, alphas[i], GT(y))
+                            lower_z = generate_zcoef_from_alpha(neuron, alphas[i], LT(y))
+                            upper_con = @build_constraint(mip[:x][i+1, j] <= sum(mip[:x][i, k] * alphas[i][k] for
+                                                                                k in 1:n) + sum(mip[:z][i+1, j, p] * upper_z[p] for p in 1:num_pieces))
+                            lower_con = @build_constraint(mip[:x][i+1, j] >= sum(mip[:x][i, k] * alphas[i][k] for
+                                                                                k in 1:n) + sum(mip[:z][i+1, j, p] * lower_z[p] for p in 1:num_pieces))
+                            MOI.submit(mip, MOI.UserCut(cb_data), upper_con)
+                            MOI.submit(mip, MOI.UserCut(cb_data), lower_con)
+                            #push!(allocation2, t2+t3)
+                        end
+                        #push!(time, [time_update, time_uzcoef, time_lzcoef])
                     end
                 end
-                if !fractional
-                    continue
-                end
-                y = x_val[i+1, j]
-                x = [x_val[i, k] for k in 1:n]
-                neuron = variable_neuron_dict[mip[:x][i+1, j]]
-                t1 = @allocated update = update_alpha!(neuron, x, y, z, alphas[i])
-                if update
-                    t2 = @allocated upper_z = generate_zcoef_from_alpha(neuron, alphas[i], GT(y))
-                    t3 = @allocated lower_z = generate_zcoef_from_alpha(neuron, alphas[i], LT(y))
-                    upper_con = @build_constraint(mip[:x][i+1, j] <= sum(mip[:x][i, k]*alphas[i][k] for 
-                                k in 1:n) + sum(mip[:z][i+1, j, p]*upper_z[p] for p in 1:num_pieces))
-                    lower_con = @build_constraint(mip[:x][i+1, j] >= sum(mip[:x][i, k]*alphas[i][k] for 
-                                k in 1:n) + sum(mip[:z][i+1, j, p]*lower_z[p] for p in 1:num_pieces))
-                    MOI.submit(mip, MOI.UserCut(cb_data), upper_con)
-                    MOI.submit(mip, MOI.UserCut(cb_data), lower_con)
-                    push!(allocation2, t2+t3)
-                end
-                push!(allocation1, t1)
-            end
+            # catch e
+            #     println("Error caught", e)
+            # end
         end
     end
-end
-
-
-allocation1 = []
-allocation2 = []
-count = [0]
-MOI.set(mip, MOI.UserCutCallback(), callback_cut)
-@time optimize!(mip)
-
-function target_attack(
-    neural_net::NeuralNetwork, 
-    image::Vector{Float64},
-    true_label::Int64,
-    target_label::Int64, 
-    eps::Float64 = 0.01, 
-)
-# set objective for mip model
-num_cut = 0
-mip, variable_neuron_dict, neuron_integervar_dict = init_mip_deeppoly(neural_net, image, eps)
-last_layer = last(neural_net.weights)
-objective = zeros(10) # always 10 classes
-objective[target_label] = 1.0
-objective[true_label] = -1.0
-#objective = [1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0]
-c = last_layer * objective
-
-
-num_layers = length(neural_net.weights)
-final_dim, output_dim = size(last_layer)
-@objective(mip, Max, sum(c[i]*mip[:x][num_layers, i] for i in 1:final_dim))
-
-neurons_by_layer = [length(bias) for bias in neural_net.biases] #including input & output layer
-pushfirst!(neurons_by_layer, size(neural_net.weights[1])[1])
-pop!(neurons_by_layer)
-
-# separation procedure
-feasible = false
-count = 0
-generated_alpha = Dict()
-for (key, value) in variable_neuron_dict
-    generated_alpha[key] = Set()
-end
-while !feasible
-    #@printf("solving %d-th problem: \n", count+1)
-    optimize!(mip)
-    x_val = [value.(mip[:x][i, k] for k in 1:neurons_by_layer[i]) for i in 1:length(neurons_by_layer)]
-    z_val = [[value.(mip[:z][i, j, k] for k in 1:neuron_integervar_dict[(i, j)]) for j in 1:neurons_by_layer[i]] 
-              for i in 2:num_layers]
+    if size(graph) != 0
+        open("graph.txt", "a") do f
+            write(f, "$graph\n")
+        end
+    end
     
-    #TODO: parallel this part?
-    feasible = true
-    for i in 1:num_layers-1
-        bias = neural_net.biases[i]
-        weight = neural_net.weights[i]
-        n, m = size(weight)
-        #@printf("   generate violating inequalities of layer %d: \n   ", i+1)
-        for j in 1:m
-            num_pieces = neuron_integervar_dict[(i+1,j)]
-            z = [z_val[i][j][k] for k in 1:num_pieces]
-            
-            fractional = false
-            for val in z
-                if val > 1e-6 && val < 1-1e-6
-                    fractional = true
-                    break
-                end
-            end
+    #record opt gap and nodes using verbose model output
+    MOI.set(mip, Gurobi.CallbackFunction(), callback_cut)
 
-            if !fractional
-                continue
+    optimize!(mip)
+    println("num of user callbacks: ", count[1])
+    print("solution status", termination_status(mip))
+    #print("fractional calls: ", fractional_calls[1], "\n")
+    if true
+        if sols[1] == 0
+            open(logFilePath, "a") do f
+                write(f, "No solutions found\n")
             end
-            y = x_val[i+1][j]
-            x = x_val[i]
-            neuron = variable_neuron_dict[mip[:x][i+1, j]]
-            alpha = generate_alpha(neuron, x, y, z)
-            if alpha != nothing && !(alpha in generated_alpha[mip[:x][i+1, j]])
-                push!(generated_alpha[mip[:x][i+1, j]], alpha)
-                num_cut += 2
-                upper_z = generate_zcoef_from_alpha(neuron, alpha, GT(y))
-                lower_z = generate_zcoef_from_alpha(neuron, alpha, LT(y))
-                @constraint(mip, mip[:x][i+1, j] <= sum(mip[:x][i, k]*alpha[k] for k in 1:n) +
-                                 sum(mip[:z][i+1, j, p]*upper_z[p] for p in 1:num_pieces)) 
-                @constraint(mip, mip[:x][i+1, j] >= sum(mip[:x][i, k]*alpha[k] for k in 1:n) +
-                                 sum(mip[:z][i+1, j, p]*lower_z[p] for p in 1:num_pieces))
-                feasible = false
+            return
+        end
+        try
+            nodes_explored = node_count(mip)
+            lb = dual_objective_value(mip)
+            obj = objective_value(mip)
+            gap = relative_gap(mip)
+        catch e
+            open(logFilePath, "a") do f
+                write(f, "No solutions found\n")
+            end
+            return
+        end
+        nodes_explored = node_count(mip)
+        lb = dual_objective_value(mip)
+        obj = objective_value(mip)
+        gap = relative_gap(mip)
+         
+        open(logFilePath, "a") do f
+            write(f, "$gap\t$eps\t$obj\t$lb\t$timelimit\t$nodes_explored\tcayley\t$imgIdx\t$cut_freq\n")
+        end
+    end
+    #return output
+    #return time
+end
+
+
+
+function run_cayley_from_lp_relax(neural_net, eps, timelimit, imgIdx, cut_freq)
+
+    opt_val, opt_sol_x, opt_sol_z, mip = target_attack(neural_net, imgs[imgIdx], labels[imgIdx], 2, eps)
+    set_attribute(mip, "output_flag", false)
+    set_optimizer_attribute(mip, "TimeLimit", timelimit) 
+    # Set integer constraint on z variables in a single loop
+    foreach(set_integer, mip[:z])
+
+    start_time = now()
+    count = [0]
+    sols = [0]
+    function callback_cut(cb_data, cb_where)
+        count[1] += 1
+        current_time = now()
+        if cb_where == Gurobi.GRB_CB_MIPSOL
+            sols[1] += 1
+            # print("cayley found better obj\n")
+            node_status = Ref{Cint}()
+            Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_STATUS, node_status)
+            println("node status: ", node_status[])
+            if node_status[] != 0
+                Gurobi.load_callback_variable_primal(cb_data, cb_where)
+                current_time = now()
+                time = Dates.value(current_time - start_time) / (1000)
+                obj_val = Ref{Cdouble}()
+                Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_OBJBST, obj_val)
+                dual_bound = Ref{Cdouble}()
+                Gurobi.GRBcbget(cb_data, cb_where, Gurobi.GRB_CB_MIPNODE_OBJBND, dual_bound)
+                open(graphFilePath, "a") do f
+                    write(f, "$obj_val\t$dual_bound\t$time\t$imgIdx\tcayley\n")
+                end
             end
         end
     end
-    count += 1
-end
-return objective_value(mip), value.(mip[:x]), value.(mip[:z]), mip
+    
+    #record opt gap and nodes using verbose model output
+    MOI.set(mip, Gurobi.CallbackFunction(), callback_cut)
+
+    optimize!(mip)
+    println("num of user callbacks: ", count[1])
+    print("solution status", termination_status(mip))
+    #print("fractional calls: ", fractional_calls[1], "\n")
+    if true
+        if sols[1] == 0
+            open(logFilePath, "a") do f
+                write(f, "No solutions found\n")
+            end
+            return
+        end
+        try
+            nodes_explored = node_count(mip)
+            lb = dual_objective_value(mip)
+            obj = objective_value(mip)
+            gap = relative_gap(mip)
+        catch e
+            open(logFilePath, "a") do f
+                write(f, "No solutions found\n")
+            end
+            return
+        end
+        nodes_explored = node_count(mip)
+        lb = dual_objective_value(mip)
+        obj = objective_value(mip)
+        gap = relative_gap(mip)
+         
+        open(logFilePath, "a") do f
+            write(f, "$gap\t$eps\t$obj\t$lb\t$timelimit\t$nodes_explored\tcayley\t$imgIdx\t$cut_freq\n")
+        end
+    end
 end
 
+@suppress begin
+    run_m(dorefa2neural, 0.001, 100, 1, 10)
+    run_cayley_from_lp_relax(dorefa2neural, 0.001, 100, 1, 10)
+end
+
+count = 0
+while count < 10
+    ## FINDING VERIFIABLE IMAGES
+    opt_val = 0
+    rand_img_idx = rand(1:length(imgs))
+    img = imgs[rand_img_idx]
+    label = labels[rand_img_idx]
+    vulnerable = false
+    for target_label in 1:10
+        if target_label != label
+            @suppress begin
+                opt_val, opt_sol_x, opt_sol_z, mip = target_attack(dorefa4neural, img, label, target_label, 0.05)
+                if opt_val > 0
+                    vulnerable = true
+                    adv_img = [opt_sol_x[1, j] for j in 1:784]
+                end
+            end
+        end
+    end
+
+    if vulnerable == false
+        global count +=1
+        for pair in [[0.05, 1000, 100]]
+                for network in [dorefa2neural, dorefa3neural, dorefa4neural]
+                    run_m(network, pair[1], pair[2], rand_img_idx, pair[3])
+                    run_cayley_from_lp_relax(network, pair[1], pair[2], rand_img_idx, pair[3])
+                end
+            # end
+        end
+    end
+end

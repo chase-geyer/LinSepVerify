@@ -1,0 +1,26 @@
+Cutting planes:
+  User: 5
+  Gomory: 73
+  Cover: 143
+  Implied bound: 18
+  Clique: 16
+  MIR: 168
+  StrongCG: 3
+  Flow cover: 193
+  GUB cover: 17
+  Inf proof: 65
+  Zero half: 2
+  RLT: 222
+  Relax-and-lift: 44
+
+  Cutting planes:
+  Gomory: 40
+  Cover: 106
+  Implied bound: 10
+  Clique: 8
+  MIR: 110
+  Flow cover: 90
+  GUB cover: 9
+  Inf proof: 8
+  RLT: 147
+  Relax-and-lift: 30

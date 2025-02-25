@@ -53,7 +53,7 @@ function load_image(img)
 end
 
 
-labels_file = open("./imgs/MNIST_labels-for-verification", "r+")
+labels_file = open("../imgs/MNIST_labels-for-verification", "r+")
 labels = Pickle.load(labels_file)
 close(labels_file)
 labels = [(l+1) for l in labels]
@@ -63,17 +63,17 @@ function collect_files(directory)
 end
 GC.gc()
 
-raw_imgs = Pickle.load("./imgs/MNIST_images-for-verification")
+raw_imgs = Pickle.load("../imgs/MNIST_images-for-verification")
 #print("Model\tUpper_Bound\tLower_Bound\tEpsilon\n")
 verification_type = "big_m"
 output_folder = "big_m_results"
-for file in collect_files("./models")
-    dorefa_int = parse(Int, file[22])
-    name_of_time_output = "./final/" * output_folder * "/time_values/results_large_dorefa_$dorefa_int.txt"
-    name_of_obj_output =  "./final/" * output_folder * "/objective_gaps/results_large_dorefa_$dorefa_int.txt"
-    if length(file) > 45
-        name_of_time_output = "./final/" * output_folder * "/time_values/results_large_dorefa_double_$dorefa_int.txt"
-        name_of_obj_output = "./final/" * output_folder * "/objective_gaps/results_large_dorefa_double_$dorefa_int.txt"
+for file in collect_files("../models")
+    dorefa_int = parse(Int, file[23])
+    name_of_time_output = "../final/" * output_folder * "/time_values/results_large_dorefa_$dorefa_int.txt"
+    name_of_obj_output =  "../final/" * output_folder * "/objective_gaps/results_large_dorefa_$dorefa_int.txt"
+    if length(file) > 46
+        name_of_time_output = "../final/" * output_folder * "/time_values/results_large_dorefa_double_$dorefa_int.txt"
+        name_of_obj_output = "../final/" * output_folder * "/objective_gaps/results_large_dorefa_double_$dorefa_int.txt"
     end
     open(name_of_time_output, "w") do output_file
         write(output_file, "Img\tTime(s)\tEpsilon\n")
@@ -134,8 +134,7 @@ for file in collect_files("./models")
                         output_label = label-1
                         write(output_file, "$count\t$output_target_label\t$eps\t$opt_val\t$output_label\n")
                     end
-                end
-               
+                end    
             end
             if vulnerable == false
                 lower_bound = lower_bound + 1
@@ -149,7 +148,7 @@ for file in collect_files("./models")
             end
             count += 1
         end
-        open("./final/results.txt", "a") do output_file
+        open("../final/results.txt", "a") do output_file
             write(output_file, "$file\t$upper_bound\t$lower_bound\t$eps\t$verification_type\n")
             #print("$file\t$upper_bound\t$lower_bound\t$eps\n")
         end   

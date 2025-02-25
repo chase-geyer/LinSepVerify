@@ -1,6 +1,6 @@
 import MathOptInterface
 using LinearAlgebra
-using JuMP, Gurobi
+using JuMP, Gurobi, .Threads
 const GT = MOI.GreaterThan{Float64}
 const LT = MOI.LessThan{Float64}
 
@@ -162,59 +162,96 @@ function solve_knapsackseries(
     upperhalf_var_order = sort(filter(x -> x[2] <= 0, var_score), by = x -> abs(x[2]))
     lowerhalf_var_order = sort(filter(x -> x[2] >= 0, var_score), by = x -> abs(x[2]))
     # Why do we knapsack twice? -- since we have to consider the upper and lower half of the activation function
-    z_coef[i₀] = c ⋅ x₀
+    # Precompute dot products that don't change within loops
+    w_dot_x₀ = w ⋅ x₀
+
+    # Use a dictionary for memoization of c ⋅ optsol results
+    memoized_c_dot_optsol = Dict()
+
+    # Efficiently compute initial conditions
+    i₀ = max(min(searchsortedlast(h, w_dot_x₀), k), 1)
+    z_coef[i₀] = get!(memoized_c_dot_optsol, x₀, c ⋅ x₀)
+
+    # Initialize variables outside of loops to avoid re-allocations
+    gap = 0.0
+    update = 0.0
+    w_dot_optsol = 0.0
     j = 1
-    optsol = copy(x₀)
-    # upper half operation (from i₀ to k)
-    for i in i₀+1:1:k
-        while h[i] > w ⋅ optsol + 1e-12 && j <= n
-            gap = h[i] - w ⋅ optsol
-            var, value = upperhalf_var_order[j]
-            update = optsol[var] + gap / w[var]
-            if w[var] < 0
-                if L[var] >= update
-                    optsol[var] = L[var]
-                    j += 1
-                else
-                    optsol[var] = update
-                end
-            else
-                if U[var] <= update
-                    optsol[var] = U[var]
-                    j += 1
-                else
-                    optsol[var] = update
+    optLock = ReentrantLock()
+    zLock = ReentrantLock()
+    # Upper half operation (from i₀ to k)
+    upper_half_task = Threads.@spawn begin
+        optsol = copy(x₀)
+        w_dot_optsol = w_dot_x₀ # Initialize with precomputed value
+        for i in i₀+1:k
+            while h[i] > w_dot_optsol + 1e-12 && j <= n
+                gap = h[i] - w_dot_optsol
+                var, value = upperhalf_var_order[j]
+                update = optsol[var] + gap / w[var]
+                lock(optLock) do
+                    if w[var] < 0
+                        if L[var] >= update
+                            optsol[var] = L[var]
+                            j += 1
+                        else
+                            optsol[var] = update
+                        end
+                    else
+                        if U[var] <= update
+                            optsol[var] = U[var]
+                            j += 1
+                        else
+                            optsol[var] = update
+                        end
+                    end
+                    w_dot_optsol = w ⋅ optsol # Update dot product after modification
                 end
             end
+            lock(zLock) do
+                z_coef[i] = get!(memoized_c_dot_optsol, optsol, c ⋅ optsol)
+            end
+
         end
-        z_coef[i] = c ⋅ optsol
     end
-    j = 1
-    optsol = copy(x₀)
-    # lower half operation (from i₀ to 1)
-    for i in i₀-1:-1:1
-        while h[i+1] < w ⋅ optsol - 1e-12 && j <= n
-            gap = h[i+1] - w ⋅ optsol
-            var, value = lowerhalf_var_order[j]
-            update = optsol[var] + gap / w[var]
-            if w[var] > 0
-                if L[var] >= update
-                    optsol[var] = L[var]
-                    j += 1
-                else
-                    optsol[var] = update
+
+    # Similar optimizations for the lower half operation...
+    lower_half_task = Threads.@spawn begin
+        j = 1
+        optsol = copy(x₀)
+        # lower half operation (from i₀ to 1)
+        for i in i₀-1:-1:1
+            while h[i+1] < w ⋅ optsol - 1e-12 && j <= n
+                gap = h[i+1] - w ⋅ optsol
+                var, value = lowerhalf_var_order[j]
+                update = optsol[var] + gap / w[var]
+                lock(optLock) do
+                    if w[var] > 0
+                        if L[var] >= update
+                            optsol[var] = L[var]
+                            j += 1
+                        else
+                            optsol[var] = update
+                        end
+                    else
+                        if U[var] <= update
+                            optsol[var] = U[var]
+                            j += 1
+                        else
+                            optsol[var] = update
+                        end
+                    end
+                    w_dot_optsol = w ⋅ optsol # Update dot product after modification
                 end
-            else
-                if U[var] <= update
-                    optsol[var] = U[var]
-                    j += 1
-                else
-                    optsol[var] = update
-                end
+
+            end
+            lock(zLock) do 
+                z_coef[i] = get!(memoized_c_dot_optsol, optsol, c ⋅ optsol)
             end
         end
-        z_coef[i] = c ⋅ optsol
     end
+    wait(lower_half_task)
+    wait(upper_half_task)
+
     return z_coef
 end
 
@@ -239,17 +276,21 @@ function optimal_ψ(
     j = 1
     while optimal_value > -1e-6 && i <= n+2
         if i >= 3
-            optimal_value = optimal_value - weighted_sum*Δ[i-2] + x[i-2]
+            optimal_value -= weighted_sum*Δ[i-2] + x[i-2]
         end
+        
         for var in j:k
             if z[var] == 0.0
                 j += 1
                 continue
             end
+            
+            remaining_solution = z[var]*(1 - optimal_solution[var])
+            
             if H[i-1][var] <= 0
-                if z[var]*(1 - optimal_solution[var]) <= breakpoints[i] - weighted_sum
+                if remaining_solution <= breakpoints[i] - weighted_sum
                     optimal_value += H[i-1][var]*(1 - optimal_solution[var])*z[var]
-                    weighted_sum += z[var]*(1 - optimal_solution[var])
+                    weighted_sum += remaining_solution
                     optimal_solution[var] = 1
                     j += 1
                 else
@@ -262,9 +303,10 @@ function optimal_ψ(
                 if weighted_sum >= breakpoints[i-1]
                     break
                 end
-                if z[var]*(1 - optimal_solution[var]) <= breakpoints[i-1] - weighted_sum
+                
+                if remaining_solution <= breakpoints[i-1] - weighted_sum
                     optimal_value += H[i-1][var]*(1 - optimal_solution[var])*z[var]
-                    weighted_sum += z[var]*(1 - optimal_solution[var])
+                    weighted_sum += remaining_solution
                     optimal_solution[var] = 1
                     j += 1
                 else
@@ -275,6 +317,7 @@ function optimal_ψ(
                 end
             end
         end
+        
         i = i + 1
     end
     return optimal_value, i-3, p
